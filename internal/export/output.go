@@ -25,9 +25,9 @@ import (
 // RunExport handles the export command for the command line. Returns error only as per cobra.
 func RunExport(cmd *cobra.Command, args []string) error {
 	opts := exportFinishParse(args)
-	opts.MaxRecordsSet = cmd.Flags().Changed("max_records")
 	rCtx := output.NewRenderContext()
 	// EXISTING_CODE
+	opts.MaxRecordsSet = cmd.Flags().Changed("max_records")
 	// EXISTING_CODE
 	outputHelpers.SetWriterForCommand("export", &opts.Globals)
 	return opts.ExportInternal(rCtx)

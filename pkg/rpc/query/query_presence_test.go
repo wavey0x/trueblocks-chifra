@@ -1,6 +1,8 @@
 package query
 
 import (
+	"errors"
+	"github.com/ethereum/go-ethereum"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,7 +21,7 @@ func TestSingleQueryPreservesResultPresence(t *testing.T) {
 				if err != nil || value == nil || *value != 0 {
 					t.Fatalf("valid zero: %v %v", value, err)
 				}
-			} else if err == nil || value != nil {
+			} else if !errors.Is(err, ethereum.NotFound) || value != nil {
 				t.Fatalf("missing result became success: %v %v", value, err)
 			}
 		})

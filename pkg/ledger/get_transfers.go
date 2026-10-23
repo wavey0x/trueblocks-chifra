@@ -33,6 +33,13 @@ func (r *Reconciler) GetTransfers(txs []*types.Transaction) ([]*types.Transfer, 
 		var passes bool
 		passes, finished = r.Opts.AppFilters.PassesCountFilter()
 		if passes {
+			if r.Opts.AsEther {
+				decimals, err := r.Connection.GetTokenDecimals(item.Asset, item.BlockNumber)
+				if err != nil {
+					return nil, false, err
+				}
+				item.Decimals = decimals
+			}
 			slice = append(slice, item)
 		}
 		if finished {

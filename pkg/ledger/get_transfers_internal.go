@@ -28,6 +28,13 @@ func (r *Reconciler) getTransfersInternal(txs []*types.Transaction, fetchBalance
 			}
 
 			if fetchBalances {
+				// Statement filtering discards known airdrops. Do not fetch their
+				// balances before that filter can run, either.
+				if xfer.Asset != base.FAKE_ETH_ADDRESS && r.RemoveAirdrops {
+					if name, ok := r.Names[xfer.Asset]; ok && name.IsAirdrop() {
+						continue
+					}
+				}
 				// Get balance for current block number if not already present
 				ahbKey := balanceOptions{Asset: key.Asset, Holder: key.Holder, BlockNumber: bn}
 				if _, exists := balances[ahbKey]; !exists {

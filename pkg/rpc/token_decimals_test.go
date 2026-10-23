@@ -2,7 +2,9 @@ package rpc
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -150,5 +152,17 @@ func TestNilCacheIsAMiss(t *testing.T) {
 	conn := &Connection{Chain: "mainnet"}
 	if err := conn.ReadFromCache(&types.Token{}); err == nil {
 		t.Fatal("absent cache reported a hit")
+	}
+}
+
+func TestMissingBlockAndTransactionRemainNotFound(t *testing.T) {
+	server := decimalsRPCServer(t, func(req rpcTestRequest) any { return nil })
+	defer server.Close()
+	conn, _ := configuredTestConnection(t, server.URL)
+	if _, err := conn.getBlockFromRpc(100, notAHash); !errors.Is(err, ethereum.NotFound) {
+		t.Fatalf("missing block error: %v", err)
+	}
+	if _, err := conn.getTransactionFromRpc(notAHash, notAHash, 100, 1); !errors.Is(err, ethereum.NotFound) {
+		t.Fatalf("missing transaction error: %v", err)
 	}
 }
