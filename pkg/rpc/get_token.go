@@ -109,11 +109,11 @@ func (conn *Connection) GetTokenState(tokenAddress base.Address, hexBlockNo stri
 		return
 	}
 
-	// Every field is optional: ERC-20 makes name, symbol and decimals optional, and most ERC-20s
-	// revert on the ERC-165 probe. A revert therefore means "not implemented", but any other
-	// per-item failure (for example, missing state on a pruned node) is a real error.
+	// A revert (or empty return data) means the contract does not implement that call: ERC-20
+	// makes name, symbol and decimals optional, and most ERC-20s revert on the ERC-165 probe.
+	// Any other per-item failure (for example, missing state on a pruned node) is a real error.
 	field := func(key string) string {
-		if value, ok := results[key]; ok && value != nil {
+		if value, ok := results[key]; ok && value != nil && *value != "0x" {
 			return *value
 		}
 		return ""
@@ -134,8 +134,6 @@ func (conn *Connection) GetTokenState(tokenAddress base.Address, hexBlockNo stri
 		decimals = uint64(parsedDecimals)
 	}
 
-	totalSupply := base.HexToWei(field("totalSupply"))
-
 	// TODO: Maybe reconcsider this
 	// TODO: According to ERC-20, name, symbol and decimals are optional, but such a token
 	// TODO: would be of no use to us
@@ -148,6 +146,13 @@ func (conn *Connection) GetTokenState(tokenAddress base.Address, hexBlockNo stri
 	if erc721Err == nil && erc721 {
 		tokenType = types.TokenErc721
 	}
+
+	// ERC-20 requires totalSupply, so a missing one is not reported as a zero supply. It is
+	// optional for ERC-721 (the enumerable extension), where zero keeps its old meaning.
+	if field("totalSupply") == "" && tokenType != types.TokenErc721 {
+		return nil, fmt.Errorf("%s does not implement totalSupply", tokenAddress.Hex())
+	}
+	totalSupply := base.HexToWei(field("totalSupply"))
 
 	token = &types.Token{
 		Address:     tokenAddress,

@@ -115,3 +115,41 @@ func TestGetTokenStateRejectsNonToken(t *testing.T) {
 		t.Fatalf("expected not-a-token error, got %v", err)
 	}
 }
+
+func TestGetTokenStateRejectsERC20WithoutTotalSupply(t *testing.T) {
+	for _, missing := range []map[string]any{{"error": revertError}, {"result": "0x"}} {
+		ts := newStateRPCServer(t, tokenRPCServer(t, map[string]map[string]any{
+			"name":        {"result": usdcNameResult},
+			"symbol":      {"result": usdcSymbolResult},
+			"decimals":    {"result": usdcDecimals},
+			"totalSupply": missing,
+			"erc721":      {"error": revertError},
+		}))
+		conn, _ := configuredTestConnection(t, ts.URL)
+		_, err := conn.GetTokenState(base.HexToAddress("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"), "latest")
+		ts.Close()
+		if err == nil || !strings.Contains(err.Error(), "does not implement totalSupply") {
+			t.Fatalf("totalSupply %v: expected an error, got %v", missing, err)
+		}
+	}
+}
+
+func TestGetTokenStateAllowsERC721WithoutTotalSupply(t *testing.T) {
+	ts := newStateRPCServer(t, tokenRPCServer(t, map[string]map[string]any{
+		"name":        {"result": usdcNameResult},
+		"symbol":      {"result": usdcSymbolResult},
+		"decimals":    {"error": revertError},
+		"totalSupply": {"error": revertError},
+		"erc721":      {"result": "0x0000000000000000000000000000000000000000000000000000000000000001"},
+	}))
+	defer ts.Close()
+
+	conn, _ := configuredTestConnection(t, ts.URL)
+	token, err := conn.GetTokenState(base.HexToAddress("0x1111111111111111111111111111111111111111"), "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token.TokenType != types.TokenErc721 || !token.TotalSupply.IsZero() || token.Decimals != 0 {
+		t.Fatalf("unexpected ERC-721 token: %+v", token)
+	}
+}
