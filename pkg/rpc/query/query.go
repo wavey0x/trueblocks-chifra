@@ -117,21 +117,63 @@ func QueryWithHeaders[T any](url string, headers map[string]string, method strin
 }
 
 // QueryBatch batches requests to the node. Returned values are stored in map, with the same keys as defined
-// in `batchPayload` (this way we don't have to operate on array indices)
+// in `batchPayload` (this way we don't have to operate on array indices). Any per-item RPC error, or a
+// missing result, fails the whole batch.
 func QueryBatch[T any](chain string, batchPayload []BatchPayload) (map[string]*T, error) {
 	return QueryBatchWithHeaders[T](chain, map[string]string{}, batchPayload)
 }
 
 func QueryBatchWithHeaders[T any](chain string, headers map[string]string, batchPayload []BatchPayload) (map[string]*T, error) {
+	results, itemErrs, err := queryBatch[T](chain, headers, batchPayload)
+	if err != nil {
+		return nil, err
+	}
+	// Report the first failure in request order so the error is deterministic.
+	for _, bpl := range batchPayload {
+		if itemErr, ok := itemErrs[bpl.Key]; ok {
+			return nil, itemErr
+		}
+	}
+	return results, nil
+}
+
+// BatchItemError is a JSON-RPC error (or a missing result) for one item of a batch.
+type BatchItemError struct {
+	Key     string
+	Method  string
+	Code    int
+	Message string
+}
+
+func (e *BatchItemError) Error() string {
+	if e.Code == 0 && e.Message == "" {
+		return fmt.Sprintf("batch %s (%s) returned no result", e.Key, e.Method)
+	}
+	return fmt.Sprintf("batch %s (%s) failed: %d: %s", e.Key, e.Method, e.Code, e.Message)
+}
+
+// IsRevert reports whether the item failed because the call reverted (EIP-1474 code 3, or
+// the "execution reverted" message some clients send with other codes).
+func (e *BatchItemError) IsRevert() bool {
+	return e.Code == 3 || strings.Contains(strings.ToLower(e.Message), "revert")
+}
+
+// QueryBatchPartial is like QueryBatch, but per-item failures are returned in the second map
+// (by key) instead of failing the batch. Transport and protocol errors still fail the call.
+func QueryBatchPartial[T any](chain string, batchPayload []BatchPayload) (map[string]*T, map[string]*BatchItemError, error) {
+	return queryBatch[T](chain, map[string]string{}, batchPayload)
+}
+
+func queryBatch[T any](chain string, headers map[string]string, batchPayload []BatchPayload) (map[string]*T, map[string]*BatchItemError, error) {
 	if len(batchPayload) == 0 {
-		return map[string]*T{}, nil
+		return map[string]*T{}, map[string]*BatchItemError{}, nil
 	}
 
 	keysByID := make(map[int]string, len(batchPayload))
 	methodsByID := make(map[int]string, len(batchPayload))
 	for _, bpl := range batchPayload {
 		if bpl.Payload == nil {
-			return nil, fmt.Errorf("batch payload %q is nil", bpl.Key)
+			return nil, nil, fmt.Errorf("batch payload %q is nil", bpl.Key)
 		}
 	}
 
@@ -159,63 +201,72 @@ func QueryBatchWithHeaders[T any](chain string, headers map[string]string, batch
 
 	plBytes, err := json.Marshal(payloadToSend)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	request, err := http.NewRequest("POST", url, bytes.NewReader(plBytes))
+	if err != nil {
+		return nil, nil, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	for key, value := range headers {
+		request.Header.Set(key, value)
+	}
+
+	client := &http.Client{}
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf("batch request failed: %s", response.Status)
+	}
+
+	theBytes, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	var result []rpcBatchResponse[T]
-	body := bytes.NewReader(plBytes)
-	if request, err := http.NewRequest("POST", url, body); err != nil {
-		return nil, err
-	} else {
-		request.Header.Set("Content-Type", "application/json")
-		for key, value := range headers {
-			request.Header.Set(key, value)
+	if err = json.Unmarshal(theBytes, &result); err != nil {
+		// Some nodes reject a whole batch (too large, batching disabled) with a single error object.
+		var single rpcResponse[json.RawMessage]
+		if json.Unmarshal(theBytes, &single) == nil && single.Error != nil {
+			return nil, nil, fmt.Errorf("batch request rejected: %d: %s", single.Error.Code, single.Error.Message)
 		}
-
-		client := &http.Client{}
-		if response, err := client.Do(request); err != nil {
-			return nil, err
-		} else if response.StatusCode != http.StatusOK {
-			defer response.Body.Close()
-			return nil, fmt.Errorf("%s: %d", response.Status, response.StatusCode)
-		} else {
-			defer response.Body.Close()
-			theBytes, err := io.ReadAll(response.Body)
-			if err != nil {
-				return nil, err
-			}
-			if err = json.Unmarshal(theBytes, &result); err != nil {
-				return nil, err
-			}
-			if len(result) != len(batchPayload) {
-				return nil, fmt.Errorf("batch response count %d does not match request count %d", len(result), len(batchPayload))
-			}
-
-			results := make(map[string]*T, len(batchPayload))
-			seen := make(map[int]bool, len(batchPayload))
-			for index := range result {
-				response := &result[index]
-				key, ok := keysByID[response.ID]
-				if !ok {
-					return nil, fmt.Errorf("batch response returned unknown id %d", response.ID)
-				}
-				if seen[response.ID] {
-					return nil, fmt.Errorf("batch response returned duplicate id %d", response.ID)
-				}
-				seen[response.ID] = true
-
-				method := methodsByID[response.ID]
-				if response.Error != nil {
-					return nil, fmt.Errorf("batch %s (%s) failed: %d: %s", key, method, response.Error.Code, response.Error.Message)
-				}
-				if response.Result == nil {
-					return nil, fmt.Errorf("batch %s (%s) returned no result", key, method)
-				}
-				results[key] = response.Result
-			}
-			return results, nil
-		}
+		return nil, nil, err
 	}
+	if len(result) != len(batchPayload) {
+		return nil, nil, fmt.Errorf("batch response count %d does not match request count %d", len(result), len(batchPayload))
+	}
+
+	results := make(map[string]*T, len(batchPayload))
+	itemErrs := make(map[string]*BatchItemError)
+	seen := make(map[int]bool, len(batchPayload))
+	for index := range result {
+		response := &result[index]
+		key, ok := keysByID[response.ID]
+		if !ok {
+			return nil, nil, fmt.Errorf("batch response returned unknown id %d", response.ID)
+		}
+		if seen[response.ID] {
+			return nil, nil, fmt.Errorf("batch response returned duplicate id %d", response.ID)
+		}
+		seen[response.ID] = true
+
+		method := methodsByID[response.ID]
+		if response.Error != nil {
+			itemErrs[key] = &BatchItemError{Key: key, Method: method, Code: response.Error.Code, Message: response.Error.Message}
+			continue
+		}
+		if response.Result == nil {
+			itemErrs[key] = &BatchItemError{Key: key, Method: method}
+			continue
+		}
+		results[key] = response.Result
+	}
+	return results, itemErrs, nil
 }
 
 func init() {

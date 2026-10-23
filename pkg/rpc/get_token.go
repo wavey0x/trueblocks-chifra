@@ -104,22 +104,37 @@ func (conn *Connection) GetTokenState(tokenAddress base.Address, hexBlockNo stri
 		},
 	}
 
-	results, err := query.QueryBatch[string](conn.Chain, payloads)
+	results, itemErrs, err := query.QueryBatchPartial[string](conn.Chain, payloads)
 	if err != nil {
 		return
 	}
 
-	name, _ := decode.ArticulateStringOrBytes(*results["name"])
-	symbol, _ := decode.ArticulateStringOrBytes(*results["symbol"])
+	// Every field is optional: ERC-20 makes name, symbol and decimals optional, and most ERC-20s
+	// revert on the ERC-165 probe. A revert therefore means "not implemented", but any other
+	// per-item failure (for example, missing state on a pruned node) is a real error.
+	field := func(key string) string {
+		if value, ok := results[key]; ok && value != nil {
+			return *value
+		}
+		return ""
+	}
+	for _, payload := range payloads {
+		if itemErr, ok := itemErrs[payload.Key]; ok && !itemErr.IsRevert() {
+			return nil, itemErr
+		}
+	}
+
+	name, _ := decode.ArticulateStringOrBytes(field("name"))
+	symbol, _ := decode.ArticulateStringOrBytes(field("symbol"))
 
 	var decimals uint64 = 0
-	strDecimals := *results["decimals"]
+	strDecimals := field("decimals")
 	parsedDecimals, parseErr := strconv.ParseUint(strDecimals, 0, 8)
 	if parseErr == nil {
 		decimals = uint64(parsedDecimals)
 	}
 
-	totalSupply := base.HexToWei(*results["totalSupply"])
+	totalSupply := base.HexToWei(field("totalSupply"))
 
 	// TODO: Maybe reconcsider this
 	// TODO: According to ERC-20, name, symbol and decimals are optional, but such a token
@@ -129,7 +144,7 @@ func (conn *Connection) GetTokenState(tokenAddress base.Address, hexBlockNo stri
 	}
 
 	tokenType := types.TokenErc20
-	erc721, erc721Err := decode.ArticulateBool(*results["erc721"])
+	erc721, erc721Err := decode.ArticulateBool(field("erc721"))
 	if erc721Err == nil && erc721 {
 		tokenType = types.TokenErc721
 	}

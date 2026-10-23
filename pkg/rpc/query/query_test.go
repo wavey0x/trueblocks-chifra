@@ -154,3 +154,49 @@ blockTime = 12
 	config.ReloadConfig()
 	t.Cleanup(config.ReloadConfig)
 }
+
+func TestQueryBatchPartialReturnsItemErrorsByKey(t *testing.T) {
+	ts := newBatchTestServer(t, func(reqs []batchTestRequest, r *http.Request) []map[string]any {
+		return []map[string]any{
+			{"jsonrpc": "2.0", "id": reqs[2].ID, "result": nil},
+			{"jsonrpc": "2.0", "id": reqs[1].ID, "error": map[string]any{"code": 3, "message": "execution reverted"}},
+			{"jsonrpc": "2.0", "id": reqs[0].ID, "result": "0x1"},
+		}
+	})
+	defer ts.Close()
+	configureQueryTestChain(t, ts.URL)
+
+	results, itemErrs, err := QueryBatchPartial[string]("mainnet", []BatchPayload{
+		{Key: "ok", Payload: &Payload{Method: "eth_call", Params: Params{}}},
+		{Key: "reverted", Payload: &Payload{Method: "eth_call", Params: Params{}}},
+		{Key: "null", Payload: &Payload{Method: "eth_call", Params: Params{}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results["ok"] == nil || *results["ok"] != "0x1" || len(results) != 1 {
+		t.Fatalf("results = %v", results)
+	}
+	if e := itemErrs["reverted"]; e == nil || !e.IsRevert() || e.Method != "eth_call" {
+		t.Fatalf("reverted item = %+v", e)
+	}
+	if e := itemErrs["null"]; e == nil || e.IsRevert() || !strings.Contains(e.Error(), "returned no result") {
+		t.Fatalf("null item = %+v", e)
+	}
+}
+
+func TestQueryBatchReportsWholeBatchRejection(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"batch too large"}}`))
+	}))
+	defer ts.Close()
+	configureQueryTestChain(t, ts.URL)
+
+	_, err := QueryBatch[string]("mainnet", []BatchPayload{
+		{Key: "balance", Payload: &Payload{Method: "eth_getBalance", Params: Params{"0x1", "0x0"}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "batch too large") {
+		t.Fatalf("expected the node's rejection message, got %v", err)
+	}
+}
