@@ -8,8 +8,9 @@ advancing address monitors. The latter two changes derive from
 [chunk-integrity fix](https://github.com/TrueBlocks/trueblocks-chifra/pull/1).
 
 Counts and bounds use independent pagination for each address. Unrestricted
-summaries read the monitor count and endpoints directly; the API's default
-250-record page no longer truncates them. Explicit bounds limits still select
+counts read the monitor count directly. Bounds scan the records to remain correct
+for unsorted legacy monitors. The API's default 250-record page no longer truncates
+these summaries. Explicit bounds limits still select
 a subset. Missing or corrupt index data surfaces as an error rather than proof
 of no activity. These fixes do not repair gaps already stored in old monitors;
 compare any suspect monitor with an independent replay before replacing it.

@@ -126,6 +126,10 @@ func (s *Token) RawMap(p *ModelProps, needed *[]Labeler) map[string]any {
 	if name.Symbol == "" {
 		name.Symbol = name.Address.DefaultSymbol()
 	}
+	if p.ExtraOpts["tokenState"] == true {
+		// Metadata queries use the state read from the node, including valid zero decimals.
+		name.Name, name.Symbol, name.Decimals = s.Name, s.Symbol, s.Decimals
+	}
 
 	// Determine which fields to include based on order logic from original
 	wanted := []string{"all"}
@@ -208,6 +212,9 @@ func (s *Token) CalcMap(p *ModelProps) map[string]any {
 	}
 	if name.Decimals == 0 {
 		name.Decimals = 18
+	}
+	if p.ExtraOpts["tokenState"] == true {
+		name.Decimals = s.Decimals
 	}
 
 	// Determine which fields to include based on order logic from original

@@ -146,6 +146,11 @@ func (conn *Connection) GetTokenState(tokenAddress base.Address, hexBlockNo stri
 	if erc721Err == nil && erc721 {
 		tokenType = types.TokenErc721
 	}
+	// Metadata output scales the supply by decimals. An optional but unavailable decimals
+	// call cannot be represented as a known zero without changing the reported amount.
+	if tokenType != types.TokenErc721 && parseErr != nil {
+		return nil, fmt.Errorf("%s decimals are unavailable; cannot report scaled token state", tokenAddress.Hex())
+	}
 
 	// ERC-20 requires totalSupply, so a missing one is not reported as a zero supply. It is
 	// optional for ERC-721 (the enumerable extension), where zero keeps its old meaning.

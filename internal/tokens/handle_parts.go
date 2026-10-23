@@ -33,20 +33,15 @@ func (opts *TokensOptions) HandleParts(rCtx *output.RenderCtx) error {
 					if state, err := opts.Conn.GetTokenState(addr, fmt.Sprintf("0x%x", bn)); err != nil {
 						errorChan <- err
 					} else {
-						s := &types.Token{
-							Address:     state.Address,
-							BlockNumber: bn,
-							TotalSupply: state.TotalSupply,
-							Decimals:    uint64(state.Decimals),
-						}
+						state.BlockNumber = bn
 						if opts.Globals.Verbose {
 							if bn == 0 || bn != currentBn {
 								currentTs, _ = tslib.FromBnToTs(chain, bn)
 							}
-							s.Timestamp = currentTs
+							state.Timestamp = currentTs
 							currentBn = bn
 						}
-						modelChan <- s
+						modelChan <- state
 					}
 				}
 			}
@@ -54,8 +49,9 @@ func (opts *TokensOptions) HandleParts(rCtx *output.RenderCtx) error {
 	}
 
 	extraOpts := map[string]any{
-		"parts":     opts.Parts,
-		"loadNames": true,
+		"parts":      opts.Parts,
+		"loadNames":  true,
+		"tokenState": true,
 	}
 
 	return output.StreamMany(rCtx, fetchData, opts.Globals.OutputOptsWithExtra(extraOpts))

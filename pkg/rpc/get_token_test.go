@@ -153,3 +153,18 @@ func TestGetTokenStateAllowsERC721WithoutTotalSupply(t *testing.T) {
 		t.Fatalf("unexpected ERC-721 token: %+v", token)
 	}
 }
+
+func TestGetTokenStateRejectsUnknownERC20Decimals(t *testing.T) {
+	for _, missing := range []map[string]any{{"error": revertError}, {"result": "0x"}} {
+		ts := newStateRPCServer(t, tokenRPCServer(t, map[string]map[string]any{
+			"name": {"result": usdcNameResult}, "symbol": {"result": usdcSymbolResult},
+			"decimals": missing, "totalSupply": {"result": usdcTotalSupply}, "erc721": {"error": revertError},
+		}))
+		conn, _ := configuredTestConnection(t, ts.URL)
+		_, err := conn.GetTokenState(base.HexToAddress("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"), "latest")
+		ts.Close()
+		if err == nil || !strings.Contains(err.Error(), "decimals are unavailable") {
+			t.Fatalf("unknown decimals became numeric data: %v", err)
+		}
+	}
+}
