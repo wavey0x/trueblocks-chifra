@@ -186,3 +186,39 @@ func TestListAcceptsSingleBlockAndRejectsReversedRange(t *testing.T) {
 		t.Fatal("reversed range accepted")
 	}
 }
+
+// Monitors written by older freshen builds are appended in chunk-completion order.
+func TestBoundsUseEarliestAndLatestOfUnsortedMonitor(t *testing.T) {
+	setupSummaryConfig(t)
+	mon, err := monitor.NewMonitorStaged("mainnet", "0x4444444444444444444444444444444444444444")
+	if err != nil {
+		t.Fatal(err)
+	}
+	apps := []types.AppRecord{
+		{BlockNumber: 300, TransactionIndex: 1},
+		{BlockNumber: 100, TransactionIndex: 7},
+		{BlockNumber: 500, TransactionIndex: 2},
+		{BlockNumber: 100, TransactionIndex: 3},
+		{BlockNumber: 500, TransactionIndex: 1},
+		{BlockNumber: 200, TransactionIndex: 1},
+	}
+	if err := mon.WriteAppearancesAppend(1000, &apps); err != nil {
+		t.Fatal(err)
+	}
+	mon.Close()
+
+	rows := runSummary(t, true, []monitor.Monitor{mon}, 0, base.NOPOSN, 0, 250, false)
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows: %v", len(rows), rows)
+	}
+	first := rows[0]["firstApp"].(map[string]any)
+	latest := rows[0]["latestApp"].(map[string]any)
+	if first["blockNumber"] != float64(100) || first["transactionIndex"] != float64(3) ||
+		latest["blockNumber"] != float64(500) || latest["transactionIndex"] != float64(2) ||
+		rows[0]["count"] != float64(len(apps)) {
+		t.Fatalf("wrong bounds for unsorted monitor: %v", rows[0])
+	}
+	if rows[0]["blockSpan"] != float64(400) {
+		t.Fatalf("blockSpan = %v, want 400", rows[0]["blockSpan"])
+	}
+}

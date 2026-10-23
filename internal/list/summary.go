@@ -17,11 +17,8 @@ func (opts *ListOptions) readSummary(mon *monitor.Monitor) ([]types.Appearance, 
 		if count == 0 || opts.Count {
 			return nil, count, nil
 		}
-		var first, last types.AppRecord
-		if err := mon.ReadAppearanceAt(1, &first); err != nil {
-			return nil, 0, err
-		}
-		if err := mon.ReadAppearanceAt(int64(count), &last); err != nil {
+		first, last, _, err := mon.ReadEndpoints()
+		if err != nil {
 			return nil, 0, err
 		}
 		return []types.Appearance{

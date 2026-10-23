@@ -5,6 +5,7 @@ package monitor
 // be found in the LICENSE file.
 
 import (
+	"bufio"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -59,5 +60,45 @@ func (mon *Monitor) ReadAppearanceAt(idx int64, app *types.AppRecord) (err error
 		return
 	}
 	err = binary.Read(mon.ReadFp, binary.LittleEndian, &app.TransactionIndex)
+	return
+}
+
+// ReadEndpoints returns the earliest and latest appearances in the monitor and the number of
+// records. Monitors written by older versions of freshen are not always in block order, so
+// this scans every record rather than reading the first and last positions.
+func (mon *Monitor) ReadEndpoints() (first, last types.AppRecord, count int64, err error) {
+	count = mon.Count()
+	if count == 0 {
+		return
+	}
+
+	f, err := os.Open(mon.Path())
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	if _, err = f.Seek(index.AppRecordWidth, io.SeekStart); err != nil {
+		return
+	}
+
+	reader := bufio.NewReaderSize(f, 1<<16)
+	var buf [index.AppRecordWidth]byte
+	var minKey, maxKey uint64
+	for i := int64(0); i < count; i++ {
+		if _, err = io.ReadFull(reader, buf[:]); err != nil {
+			return types.AppRecord{}, types.AppRecord{}, 0, err
+		}
+		app := types.AppRecord{
+			BlockNumber:      binary.LittleEndian.Uint32(buf[0:4]),
+			TransactionIndex: binary.LittleEndian.Uint32(buf[4:8]),
+		}
+		key := uint64(app.BlockNumber)<<32 | uint64(app.TransactionIndex)
+		if i == 0 || key < minKey {
+			first, minKey = app, key
+		}
+		if i == 0 || key > maxKey {
+			last, maxKey = app, key
+		}
+	}
 	return
 }
