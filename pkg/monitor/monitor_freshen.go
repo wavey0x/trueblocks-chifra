@@ -277,17 +277,18 @@ func (updater *MonitorUpdate) stopAtMissingBloom(jobs []freshenJob) ([]freshenJo
 		return nil, err
 	}
 
-	// maxLast[i] is the furthest block covered by jobs[:i+1], so nested or overlapping
-	// stale blooms still count as coverage.
-	maxLast := make([]base.Blknum, len(jobs))
-	for i, job := range jobs {
-		maxLast[i] = job.rng.Last
-		if i > 0 {
-			maxLast[i] = max(maxLast[i], maxLast[i-1])
+	// Merge the local blooms into continuous spans. Overlapping and nested stale blooms still
+	// count as coverage, but a published range is only present if one span covers all of it.
+	spans := make([]ranges.FileRange, 0, len(jobs))
+	for _, job := range jobs {
+		if n := len(spans); n > 0 && job.rng.First <= spans[n-1].Last+1 {
+			spans[n-1].Last = max(spans[n-1].Last, job.rng.Last)
+		} else {
+			spans = append(spans, job.rng)
 		}
 	}
+	tip := spans[len(spans)-1].Last // spans are disjoint and ascending
 
-	last := jobs[len(jobs)-1].rng
 	missing := ranges.FileRange{First: base.NOPOSN, Last: base.NOPOSN}
 	for _, chunk := range man.Chunks {
 		rng := ranges.RangeFromRangeString(chunk.Range)
@@ -295,12 +296,14 @@ func (updater *MonitorUpdate) stopAtMissingBloom(jobs []freshenJob) ([]freshenJo
 		if rng.String() != chunk.Range || rng.First > rng.Last {
 			return nil, fmt.Errorf("malformed manifest range %q", chunk.Range)
 		}
-		if rng.EarlierThanB(updater.FirstBlock) || rng.First > last.First || rng.First >= missing.First {
+		if rng.EarlierThanB(updater.FirstBlock) || rng.First > tip || rng.First >= missing.First {
 			continue
 		}
-		// Present if any local bloom overlaps it (local chunk boundaries may differ).
-		n := sort.Search(len(jobs), func(i int) bool { return jobs[i].rng.First > rng.Last })
-		if n == 0 || maxLast[n-1] < rng.First {
+		// Only the part of the range this freshen could scan must be covered: nothing before
+		// FirstBlock, and nothing past the local tip (later blocks are not scanned yet).
+		lo, hi := max(rng.First, updater.FirstBlock), min(rng.Last, tip)
+		i := sort.Search(len(spans), func(i int) bool { return spans[i].Last >= lo })
+		if i == len(spans) || spans[i].First > lo || spans[i].Last < hi {
 			missing = rng
 		}
 	}
@@ -480,19 +483,27 @@ func (updater *MonitorUpdate) updateMonitors(result *index.AppearanceResult) {
 
 	} else {
 		mon.Close()
-		// Note that result.AppRecords may be nil here (because, for example, this
-		// monitor had a false positive), but we do still want to update the header.
-		_ = mon.WriteMonHeader(mon.Deleted, lastScanned, false /* force */)
+		// A chunk can start before this monitor's LastScanned (another monitor in the batch
+		// is further behind, or local and published chunk boundaries differ). Appearances
+		// before LastScanned are already in the file, so keep only the new ones.
+		var apps []types.AppRecord
 		if result.AppRecords != nil {
-			nWritten := len(*result.AppRecords)
-			if nWritten > 0 {
-				_, err := mon.WriteAppearances(*result.AppRecords, true /* append */)
-				if err != nil {
-					logger.Error(err)
-				} else {
-					msg := fmt.Sprintf("%s%s appended %5d apps at %s%s", colors.Green, mon.Address.Hex(), nWritten, result.Range, colors.Off)
-					logger.Progress(!updater.TestMode, msg)
+			for _, app := range *result.AppRecords {
+				if app.BlockNumber >= mon.LastScanned {
+					apps = append(apps, app)
 				}
+			}
+		}
+		// Note that apps may be empty here (because, for example, this monitor had
+		// a false positive), but we do still want to update the header.
+		_ = mon.WriteMonHeader(mon.Deleted, lastScanned, false /* force */)
+		if nWritten := len(apps); nWritten > 0 {
+			_, err := mon.WriteAppearances(apps, true /* append */)
+			if err != nil {
+				logger.Error(err)
+			} else {
+				msg := fmt.Sprintf("%s%s appended %5d apps at %s%s", colors.Green, mon.Address.Hex(), nWritten, result.Range, colors.Off)
+				logger.Progress(!updater.TestMode, msg)
 			}
 		}
 	}

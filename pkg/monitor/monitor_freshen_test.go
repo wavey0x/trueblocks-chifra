@@ -248,6 +248,11 @@ func TestStopAtMissingBloom(t *testing.T) {
 	}{
 		{"nested stale bloom covers range", []string{"000000200-000000299"}, []ranges.FileRange{rng(0, 299), rng(100, 199), rng(300, 399)}, 3, ""},
 		{"missing published chunk", []string{"000000100-000000199"}, []ranges.FileRange{rng(0, 99), rng(200, 299)}, 1, "missing bloom filter for published chunk 000000100-000000199"},
+		{"partial overlap leaves a gap", []string{"000000100-000000199"}, []ranges.FileRange{rng(0, 150), rng(200, 299)}, 1, "missing bloom filter for published chunk 000000100-000000199"},
+		{"gap inside a published range", []string{"000000100-000000199"}, []ranges.FileRange{rng(0, 120), rng(130, 299)}, 1, "missing bloom filter for published chunk 000000100-000000199"},
+		{"different local boundaries cover range", []string{"000000100-000000199"}, []ranges.FileRange{rng(0, 150), rng(151, 299)}, 2, ""},
+		{"range past the local tip is not required", []string{"000000100-000000199", "000000200-000000299"}, []ranges.FileRange{rng(0, 249)}, 1, ""},
+		{"range before first block is not required", []string{"000000000-000000099", "000000100-000000199"}, []ranges.FileRange{rng(100, 199)}, 1, ""},
 		{"malformed manifest range", []string{"000000100-bad"}, []ranges.FileRange{rng(0, 99), rng(200, 299)}, 0, `malformed manifest range "000000100-bad"`},
 	}
 	for _, tc := range tests {
@@ -281,5 +286,44 @@ func TestStopAtMissingBloom(t *testing.T) {
 				t.Fatalf("kept %d jobs, want %d", len(kept), tc.keep)
 			}
 		})
+	}
+}
+
+func TestUpdateMonitorsSkipsAppearancesBeforeLastScanned(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	rootConfig := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", rootConfig)
+	t.Setenv("TB_NO_PROVIDER_CHECK", "true")
+	if err := os.WriteFile(filepath.Join(rootConfig, "trueBlocks.toml"), []byte("[version]\ncurrent = \"v999.0.0\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	config.ReloadConfig()
+	t.Cleanup(config.ReloadConfig)
+
+	const chain = "testchain"
+	address := base.HexToAddress("0x1234567890123456789012345678901234567890")
+	mon, err := NewMonitorStaged(chain, address.Hex())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Blocks 0-150 were scanned from a local chunk with different boundaries.
+	if err := mon.WriteAppearancesAppend(151, &[]types.AppRecord{{BlockNumber: 120, TransactionIndex: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	updater := MonitorUpdate{Chain: chain, MonitorMap: map[base.Address]*Monitor{address: &mon}}
+
+	// The published chunk 100-199 overlaps blocks the monitor already holds.
+	apps := []types.AppRecord{{BlockNumber: 120, TransactionIndex: 1}, {BlockNumber: 160, TransactionIndex: 2}}
+	updater.updateMonitors(&index.AppearanceResult{Address: address, Range: ranges.FileRange{First: 100, Last: 199}, AppRecords: &apps})
+
+	if mon.LastScanned != 200 || mon.Count() != 2 {
+		t.Fatalf("lastScanned=%d count=%d, want 200 2", mon.LastScanned, mon.Count())
+	}
+	var second types.AppRecord
+	if err := mon.ReadAppearanceAt(2, &second); err != nil {
+		t.Fatal(err)
+	}
+	if second.BlockNumber != 160 {
+		t.Fatalf("appended block %d, want 160", second.BlockNumber)
 	}
 }
