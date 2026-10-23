@@ -73,11 +73,13 @@ func NewMonitorStaged(chain, addr string) (Monitor, error) {
 	if file.FileExists(prodPath) {
 		_, err := file.Copy(stagedPath, prodPath)
 		if err != nil {
+			_ = os.Remove(stagedPath)
 			return mon, err
 		}
 	} else {
 		err := mon.WriteMonHeader(false, 0, false /* force */)
 		if err != nil {
+			_ = os.Remove(stagedPath)
 			return mon, err
 		}
 	}
@@ -240,11 +242,12 @@ func (mon *Monitor) MoveToProduction() error {
 	}
 
 	oldPath := mon.Path()
-	mon.Staged = false
 	monitorMutex.Lock()
-	err = os.Rename(oldPath, mon.Path())
+	err = os.Rename(oldPath, PathToMonitorFile(mon.Chain, mon.Address))
 	monitorMutex.Unlock()
-
+	if err == nil {
+		mon.Staged = false
+	}
 	return err
 }
 

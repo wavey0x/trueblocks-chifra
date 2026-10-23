@@ -16,11 +16,14 @@ func Copy(destPath, sourcePath string) (int64, error) {
 	}
 	defer source.Close()
 
-	dest, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE, 0644)
+	dest, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		return 0, err
 	}
-	defer dest.Close()
-
-	return io.Copy(dest, source)
+	n, err := io.Copy(dest, source)
+	closeErr := dest.Close()
+	if err != nil {
+		return n, err
+	}
+	return n, closeErr
 }
