@@ -22,14 +22,20 @@ func (mon *Monitor) WriteMonHeader(deleted bool, lastScanned uint32, force bool)
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); err == nil {
+			err = closeErr
+		}
+	}()
 
 	mon.Deleted = deleted
 	if force || lastScanned > mon.LastScanned {
 		mon.LastScanned = lastScanned
 	}
 
-	_, _ = f.Seek(0, io.SeekStart)
+	if _, err = f.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
 	err = binary.Write(f, binary.LittleEndian, mon.Header)
 	return
 }
@@ -45,21 +51,23 @@ func (mon *Monitor) WriteAppearancesAppend(lastScanned uint32, apps *[]types.App
 		logger.ShouldNotHappen("trying to write from a nil monitor")
 	}
 
-	err := mon.WriteMonHeader(mon.Deleted, lastScanned, false /* force */)
+	// Some callers create an empty file before the first append. Reserve its
+	// header without advancing coverage, so appending cannot overwrite record one.
+	info, err := os.Stat(mon.Path())
 	if err != nil {
 		return err
 	}
-
-	if apps != nil {
-		if len(*apps) > 0 {
-			_, err := mon.WriteAppearances(*apps, true /* append */)
-			if err != nil {
-				return err
-			}
+	if info.Size() == 0 {
+		if err := mon.WriteMonHeader(mon.Deleted, mon.LastScanned, false); err != nil {
+			return err
 		}
 	}
-
-	return nil
+	if apps != nil && len(*apps) > 0 {
+		if _, err := mon.WriteAppearances(*apps, true /* append */); err != nil {
+			return err
+		}
+	}
+	return mon.WriteMonHeader(mon.Deleted, lastScanned, false /* force */)
 }
 
 // TODO: Protect against overwriting files on disc
@@ -78,7 +86,10 @@ func (mon *Monitor) WriteAppearances(apps []types.AppRecord, append bool) (int64
 		return 0, err
 	}
 
-	_, _ = f.Seek(index.AppRecordWidth, io.SeekStart)
+	if _, err := f.Seek(index.AppRecordWidth, io.SeekStart); err != nil {
+		_ = f.Close()
+		return 0, err
+	}
 
 	b := make([]byte, 4)
 	for _, app := range apps {
@@ -96,7 +107,8 @@ func (mon *Monitor) WriteAppearances(apps []types.AppRecord, append bool) (int64
 		}
 	}
 
-	f.Close() // do not defer this, we need to close it so the fileSize is right
-	_, _ = mon.Reload(false /* create */)
-	return mon.Count(), nil
+	if err := f.Close(); err != nil {
+		return 0, err
+	}
+	return mon.Reload(false /* create */)
 }

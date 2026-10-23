@@ -59,29 +59,20 @@ const maxTestingBlock = 17000000
 var mutexesPerAddress = make(map[string]*sync.Mutex)
 var mutexesPerAddressMutex sync.Mutex
 
-// lockForAddress locks the mutex for the given address
-func lockForAddress(address string) {
-	mutex, ok := mutexesPerAddress[address]
-	if ok {
-		mutex.Lock()
-		return
-	}
-
+// addressMutex returns the one mutex registered for a canonical address.
+func addressMutex(address string) *sync.Mutex {
 	mutexesPerAddressMutex.Lock()
 	defer mutexesPerAddressMutex.Unlock()
-	newMutex := &sync.Mutex{}
-	mutexesPerAddress[address] = newMutex
-	newMutex.Lock()
+	if mutex := mutexesPerAddress[address]; mutex != nil {
+		return mutex
+	}
+	mutex := &sync.Mutex{}
+	mutexesPerAddress[address] = mutex
+	return mutex
 }
 
-// unlockForAddress removes mutex lock for the given address
-func unlockForAddress(address string) {
-	mutex, ok := mutexesPerAddress[address]
-	if !ok {
-		logger.Panic("unlockForAddress called for address that has never been locked: " + address)
-	}
-	mutex.Unlock()
-}
+func lockForAddress(address string)   { addressMutex(address).Lock() }
+func unlockForAddress(address string) { addressMutex(address).Unlock() }
 
 func (updater *MonitorUpdate) FreshenMonitors(monitorArray *[]Monitor) (bool, error) {
 
@@ -90,10 +81,37 @@ func (updater *MonitorUpdate) FreshenMonitors(monitorArray *[]Monitor) (bool, er
 	// TODO: We could, if we wished, create special cases here to (for example) report
 	// TODO: the balance sheet for "Ethereum" as a whole. How much has been spent on mining?
 	// TODO: How much was the original allocation worth?
+	// Parsing can resolve different spellings or ENS names to the same wallet.
+	// Deduplicate here as well, before taking any non-reentrant locks.
+	seen := make(map[string]bool, len(updater.Addrs))
+	addrs := make([]string, 0, len(updater.Addrs))
 	for _, address := range updater.Addrs {
-		lockForAddress(address)
-		defer unlockForAddress(address) // reminder: this defers until the function returns, not this loop
+		canonical := base.HexToAddress(address)
+		address = canonical.Hex()
+		if !seen[address] {
+			seen[address] = true
+			addrs = append(addrs, address)
+		}
 	}
+	updater.Addrs = addrs
+	lockOrder := append([]string(nil), addrs...)
+	sort.Strings(lockOrder)
+	for _, address := range lockOrder {
+		lockForAddress(address)
+		defer unlockForAddress(address)
+	}
+	// A failed refresh must never leave its partial staging copy publishable.
+	discardStaged := true
+	defer func() {
+		if discardStaged {
+			for _, mon := range updater.MonitorMap {
+				if mon.Staged {
+					mon.Close()
+					_ = os.Remove(mon.Path())
+				}
+			}
+		}
+	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -111,8 +129,15 @@ func (updater *MonitorUpdate) FreshenMonitors(monitorArray *[]Monitor) (bool, er
 		}
 
 		if updater.MonitorMap[base.HexToAddress(addr)] == nil {
-			mon, _ := NewMonitorStaged(updater.Chain, addr)
-			_ = mon.ReadMonitorHeader()
+			mon, err := NewMonitorStaged(updater.Chain, addr)
+			if err != nil {
+				return false, fmt.Errorf("stage %s: %w", addr, err)
+			}
+			if err := mon.ReadMonitorHeader(); err != nil {
+				mon.Close()
+				_ = os.Remove(mon.Path())
+				return false, fmt.Errorf("read staged header %s: %w", addr, err)
+			}
 			bn := base.Blknum(mon.LastScanned)
 			if bn < updater.FirstBlock {
 				updater.FirstBlock = bn
@@ -124,6 +149,7 @@ func (updater *MonitorUpdate) FreshenMonitors(monitorArray *[]Monitor) (bool, er
 	}
 
 	if updater.SkipFreshen {
+		discardStaged = false // The caller reads this unchanged staged snapshot.
 		return ctx.Err() != nil, nil
 	}
 
@@ -202,7 +228,9 @@ func (updater *MonitorUpdate) FreshenMonitors(monitorArray *[]Monitor) (bool, er
 		}
 		keep, err := partitionFreshenResults(pending)
 		for i := range keep {
-			updater.updateMonitors(&keep[i])
+			if writeErr := updater.updateMonitors(&keep[i]); writeErr != nil {
+				return ctx.Err() != nil, writeErr
+			}
 		}
 		firstErr = err
 	}
@@ -238,7 +266,9 @@ func (updater *MonitorUpdate) FreshenMonitors(monitorArray *[]Monitor) (bool, er
 							Range:      rng,
 							AppRecords: apps,
 						}
-						updater.updateMonitors(&stageResult)
+						if err := updater.updateMonitors(&stageResult); err != nil {
+							return ctx.Err() != nil, err
+						}
 					}
 				}
 			}
@@ -451,15 +481,13 @@ func partitionFreshenResults(results []index.AppearanceResult) ([]index.Appearan
 
 // updateMonitors writes an array of appearances to the Monitor file updating the header for lastScanned. It
 // is called by 'chifra list' and 'chifra export' prior to reporting results
-func (updater *MonitorUpdate) updateMonitors(result *index.AppearanceResult) {
+func (updater *MonitorUpdate) updateMonitors(result *index.AppearanceResult) error {
 	if result == nil {
-		logger.Error("Should not happen -- null result")
-		return
+		return errors.New("cannot update monitor from a nil result")
 	}
 
 	if result.Err != nil {
-		logger.Error("Error processing index file:", result.Range, result.Err)
-		return
+		return fmt.Errorf("index range %s: %w", result.Range, result.Err)
 	}
 
 	lastScanned := uint32(result.Range.Last) + 1
@@ -477,7 +505,7 @@ func (updater *MonitorUpdate) updateMonitors(result *index.AppearanceResult) {
 			mon.Close()
 			err := mon.WriteAppearancesAppend(lastScanned, nil)
 			if err != nil {
-				logger.Error(err)
+				return fmt.Errorf("update %s: %w", mon.Address.Hex(), err)
 			}
 		}
 
@@ -496,17 +524,15 @@ func (updater *MonitorUpdate) updateMonitors(result *index.AppearanceResult) {
 		}
 		// Note that apps may be empty here (because, for example, this monitor had
 		// a false positive), but we do still want to update the header.
-		_ = mon.WriteMonHeader(mon.Deleted, lastScanned, false /* force */)
+		if err := mon.WriteAppearancesAppend(lastScanned, &apps); err != nil {
+			return fmt.Errorf("update %s: %w", mon.Address.Hex(), err)
+		}
 		if nWritten := len(apps); nWritten > 0 {
-			_, err := mon.WriteAppearances(apps, true /* append */)
-			if err != nil {
-				logger.Error(err)
-			} else {
-				msg := fmt.Sprintf("%s%s appended %5d apps at %s%s", colors.Green, mon.Address.Hex(), nWritten, result.Range, colors.Off)
-				logger.Progress(!updater.TestMode, msg)
-			}
+			msg := fmt.Sprintf("%s%s appended %5d apps at %s%s", colors.Green, mon.Address.Hex(), nWritten, result.Range, colors.Off)
+			logger.Progress(!updater.TestMode, msg)
 		}
 	}
+	return nil
 }
 
 func needsMigration(addr string) error {

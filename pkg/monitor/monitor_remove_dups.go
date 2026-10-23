@@ -45,7 +45,9 @@ func (mon *Monitor) RemoveDups() (int64, int64, error) {
 			if err != nil {
 				return cntBefore, cntAfter, err
 			}
-			_ = mon.WriteMonHeader(mon.Deleted, mon.LastScanned, false /* force */)
+			if err := mon.WriteMonHeader(mon.Deleted, mon.LastScanned, false /* force */); err != nil {
+				return cntBefore, cntAfter, err
+			}
 		}
 
 		return cntBefore, cntAfter, err
