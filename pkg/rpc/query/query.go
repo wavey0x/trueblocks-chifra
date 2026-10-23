@@ -29,6 +29,12 @@ type rpcResponse[T any] struct {
 	Error  *eip1474Error `json:"error"`
 }
 
+type rpcBatchResponse[T any] struct {
+	ID     int           `json:"id"`
+	Result *T            `json:"result"`
+	Error  *eip1474Error `json:"error"`
+}
+
 type eip1474Error struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
@@ -117,23 +123,32 @@ func QueryBatch[T any](chain string, batchPayload []BatchPayload) (map[string]*T
 }
 
 func QueryBatchWithHeaders[T any](chain string, headers map[string]string, batchPayload []BatchPayload) (map[string]*T, error) {
-	keys := make([]string, 0, len(batchPayload))
-	payloads := make([]Payload, 0, len(batchPayload))
+	if len(batchPayload) == 0 {
+		return map[string]*T{}, nil
+	}
+
+	keysByID := make(map[int]string, len(batchPayload))
+	methodsByID := make(map[int]string, len(batchPayload))
 	for _, bpl := range batchPayload {
-		keys = append(keys, bpl.Key)
-		payloads = append(payloads, *bpl.Payload)
+		if bpl.Payload == nil {
+			return nil, fmt.Errorf("batch payload %q is nil", bpl.Key)
+		}
 	}
 
 	url := config.GetChain(chain).GetRpcProvider()
-	payloadToSend := make([]rpcPayload, 0, len(payloads))
+	payloadToSend := make([]rpcPayload, 0, len(batchPayload))
 
-	for _, payload := range payloads {
+	for _, bpl := range batchPayload {
+		payload := *bpl.Payload
+		id := int(atomic.AddUint32(&rpcCounter, 1))
 		theLoad := rpcPayload{
 			Jsonrpc: "2.0",
 			Method:  payload.Method,
 			Params:  payload.Params,
-			ID:      int(atomic.AddUint32(&rpcCounter, 1)),
+			ID:      id,
 		}
+		keysByID[id] = bpl.Key
+		methodsByID[id] = payload.Method
 		debug.DebugCurl(rpcDebug{
 			url:     url,
 			payload: theLoad,
@@ -147,23 +162,58 @@ func QueryBatchWithHeaders[T any](chain string, headers map[string]string, batch
 		return nil, err
 	}
 
-	var result []rpcResponse[T]
+	var result []rpcBatchResponse[T]
 	body := bytes.NewReader(plBytes)
-	if response, err := http.Post(url, "application/json", body); err != nil {
+	if request, err := http.NewRequest("POST", url, body); err != nil {
 		return nil, err
 	} else {
-		defer response.Body.Close()
-		if theBytes, err := io.ReadAll(response.Body); err != nil {
+		request.Header.Set("Content-Type", "application/json")
+		for key, value := range headers {
+			request.Header.Set(key, value)
+		}
+
+		client := &http.Client{}
+		if response, err := client.Do(request); err != nil {
 			return nil, err
+		} else if response.StatusCode != http.StatusOK {
+			defer response.Body.Close()
+			return nil, fmt.Errorf("%s: %d", response.Status, response.StatusCode)
 		} else {
+			defer response.Body.Close()
+			theBytes, err := io.ReadAll(response.Body)
+			if err != nil {
+				return nil, err
+			}
 			if err = json.Unmarshal(theBytes, &result); err != nil {
 				return nil, err
 			}
-			results := make(map[string]*T, len(batchPayload))
-			for index, key := range keys {
-				results[key] = &result[index].Result
+			if len(result) != len(batchPayload) {
+				return nil, fmt.Errorf("batch response count %d does not match request count %d", len(result), len(batchPayload))
 			}
-			return results, err
+
+			results := make(map[string]*T, len(batchPayload))
+			seen := make(map[int]bool, len(batchPayload))
+			for index := range result {
+				response := &result[index]
+				key, ok := keysByID[response.ID]
+				if !ok {
+					return nil, fmt.Errorf("batch response returned unknown id %d", response.ID)
+				}
+				if seen[response.ID] {
+					return nil, fmt.Errorf("batch response returned duplicate id %d", response.ID)
+				}
+				seen[response.ID] = true
+
+				method := methodsByID[response.ID]
+				if response.Error != nil {
+					return nil, fmt.Errorf("batch %s (%s) failed: %d: %s", key, method, response.Error.Code, response.Error.Message)
+				}
+				if response.Result == nil {
+					return nil, fmt.Errorf("batch %s (%s) returned no result", key, method)
+				}
+				results[key] = response.Result
+			}
+			return results, nil
 		}
 	}
 }

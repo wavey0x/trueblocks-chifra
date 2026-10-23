@@ -46,8 +46,13 @@ type Status struct {
 	Version       string       `json:"version,omitempty"`
 	Calcs         *StatusCalcs `json:"calcs,omitempty"`
 	// EXISTING_CODE
-	Meta  *MetaData `json:"meta,omitempty"`
-	Diffs *MetaData `json:"diffs,omitempty"`
+	ClientKind   string    `json:"clientKind,omitempty"`
+	ArchiveProbe string    `json:"archiveProbe,omitempty"`
+	ArchiveError string    `json:"archiveError,omitempty"`
+	TracingProbe string    `json:"tracingProbe,omitempty"`
+	TracingError string    `json:"tracingError,omitempty"`
+	Meta         *MetaData `json:"meta,omitempty"`
+	Diffs        *MetaData `json:"diffs,omitempty"`
 	// EXISTING_CODE
 }
 
@@ -72,6 +77,11 @@ func (s *Status) Model(chain, format string, verbose bool, extraOpts map[string]
 		"cachePath",
 		"chainConfig",
 		"clientVersion",
+		"clientKind",
+		"archiveProbe",
+		"archiveError",
+		"tracingProbe",
+		"tracingError",
 		"hasEsKey",
 		"hasPinKey",
 		"indexPath",
@@ -114,6 +124,11 @@ func (s *Status) RawMap(p *ModelProps, needed *[]Labeler) map[string]any {
 		"cachePath":         s.CachePath,
 		"chainConfig":       s.ChainConfig,
 		"clientVersion":     s.ClientVersion,
+		"clientKind":        s.ClientKind,
+		"archiveProbe":      s.ArchiveProbe,
+		"archiveError":      s.ArchiveError,
+		"tracingProbe":      s.TracingProbe,
+		"tracingError":      s.TracingError,
 		"hasEsKey":          s.HasEsKey,
 		"hasPinKey":         s.HasPinKey,
 		"indexPath":         s.IndexPath,

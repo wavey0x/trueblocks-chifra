@@ -11,6 +11,7 @@ import (
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/config"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/logger"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/output"
+	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/rpc"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/tslib"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/types"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/validate"
@@ -81,10 +82,12 @@ func (opts *StatusOptions) GetStatus(diagnose bool) (*types.Status, error) {
 		return nil, err
 	}
 
-	_, isTracing := opts.Conn.IsNodeTracing()
+	archiveCheck := opts.Conn.CheckNodeArchive()
+	tracingCheck := opts.Conn.CheckNodeTracing()
 	provider := config.GetChain(chain).GetRpcProvider()
 	s := &types.Status{
 		ClientVersion: vers,
+		ClientKind:    string(rpc.DetectClientKind(vers)),
 		Version:       version.LibraryVersion,
 		RpcProvider:   provider,
 		RootConfig:    config.PathToRootConfig(),
@@ -94,8 +97,12 @@ func (opts *StatusOptions) GetStatus(diagnose bool) (*types.Status, error) {
 		Progress:      ToProgress(chain, diagnose, meta),
 		IsTesting:     testMode,
 		IsApi:         opts.Globals.IsApiMode(),
-		IsArchive:     opts.Conn.IsNodeArchive(),
-		IsTracing:     isTracing,
+		IsArchive:     archiveCheck.OK,
+		ArchiveProbe:  archiveCheck.Detail,
+		ArchiveError:  probeError(archiveCheck),
+		IsTracing:     tracingCheck.OK,
+		TracingProbe:  tracingCheck.Detail,
+		TracingError:  probeError(tracingCheck),
 		HasEsKey:      validate.HasArticulationKey(true),
 		HasPinKey:     len(config.GetKey("pinata").ApiKey) > 0 || len(config.GetKey("pinata").Secret) > 0,
 		Chain:         chain,
@@ -111,6 +118,7 @@ func (opts *StatusOptions) GetStatus(diagnose bool) (*types.Status, error) {
 
 	if testMode {
 		s.ClientVersion = "Client version"
+		s.ClientKind = "unknown"
 		s.Version = "GHC-TrueBlocks//vers-beta--git-hash---git-ts-"
 		s.RpcProvider = "--providers--"
 		s.RootConfig = "--paths--"
@@ -118,6 +126,10 @@ func (opts *StatusOptions) GetStatus(diagnose bool) (*types.Status, error) {
 		s.CachePath = "--paths--"
 		s.IndexPath = "--paths--"
 		s.Progress = "--client--, --final--, --staging--, --unripe-- ts: --ts--"
+		s.ArchiveProbe = "--archive-probe--"
+		s.ArchiveError = ""
+		s.TracingProbe = "--tracing-probe--"
+		s.TracingError = ""
 		s.HasPinKey = false // the test machine doesn't have a key
 	}
 
@@ -130,6 +142,13 @@ func (opts *StatusOptions) GetStatus(diagnose bool) (*types.Status, error) {
 	}
 
 	return s, nil
+}
+
+func probeError(check rpc.CapabilityCheck) string {
+	if check.OK {
+		return ""
+	}
+	return check.Diagnostic()
 }
 
 func toTemplate(s *types.Status, w io.Writer, testMode, diagnose, logTimerOn bool, format string) bool {

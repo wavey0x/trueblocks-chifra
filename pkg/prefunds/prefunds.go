@@ -1,6 +1,7 @@
 package prefunds
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -19,6 +20,11 @@ type Allocation struct {
 	Balance base.Wei     `json:"balance" csv:"balance"`
 }
 
+type allocationRecord struct {
+	Address string `csv:"address"`
+	Balance string `csv:"balance"`
+}
+
 // emptyAllocs is a list of empty allocations. We use this to return at least one allocation
 var emptyAllocs = []Allocation{}
 
@@ -30,30 +36,44 @@ type allocCallback func(*Allocation, *any) (bool, error)
 func LoadPrefunds(chain string, thePath string, userCallback allocCallback) ([]Allocation, error) {
 	_ = chain
 	allocations := make([]Allocation, 0, 4000)
-	callbackFunc := func(record Allocation) error {
-		if base.IsValidAddress(record.Address.Hex()) {
-			alloc := Allocation{
-				Address: record.Address,
-				Balance: record.Balance,
+	row := 1 // header is row 1
+	callbackFunc := func(record allocationRecord) error {
+		row++
+		if ok, err := base.ValidHex(record.Address, 20); !ok {
+			if err != nil {
+				return fmt.Errorf("invalid prefund address at row %d: %w", row, err)
 			}
-			// fmt.Println(alloc)
-			allocations = append(allocations, alloc)
-			if userCallback != nil {
-				if cont, err := userCallback(&alloc, nil); !cont || err != nil {
-					return err
-				}
+			return fmt.Errorf("invalid prefund address at row %d: %q", row, record.Address)
+		}
+
+		balance := base.NewWei(0)
+		if _, ok := balance.SetString(record.Balance, 0); !ok {
+			return fmt.Errorf("invalid prefund balance at row %d: %q", row, record.Balance)
+		}
+
+		alloc := Allocation{
+			Address: base.HexToAddress(record.Address),
+			Balance: *balance,
+		}
+		allocations = append(allocations, alloc)
+		if userCallback != nil {
+			if cont, err := userCallback(&alloc, nil); !cont || err != nil {
+				return err
 			}
 		}
 		return nil
 	}
 
-	if theFile, err := os.OpenFile(thePath, os.O_RDWR|os.O_CREATE, os.ModePerm); err != nil {
-		return emptyAllocs, err
+	if theFile, err := os.Open(thePath); err != nil {
+		return emptyAllocs, fmt.Errorf("opening prefunds %s: %w", thePath, err)
 
 	} else {
 		defer theFile.Close()
+		if info, err := theFile.Stat(); err == nil && info.Size() == 0 {
+			return emptyAllocs, nil
+		}
 		if err := gocsv.UnmarshalToCallback(theFile, callbackFunc); err != nil {
-			return emptyAllocs, err
+			return emptyAllocs, fmt.Errorf("loading prefunds %s: %w", thePath, err)
 		}
 	}
 
@@ -77,6 +97,9 @@ func GetLargestPrefund(chain, thePath string) (Allocation, error) {
 	_, err := LoadPrefunds(chain, thePath, getLargest)
 	if err != nil {
 		return Allocation{}, err
+	}
+	if largest.Address.IsZero() && largest.Balance.IsZero() {
+		return Allocation{}, fmt.Errorf("no valid prefunds found in %s", thePath)
 	}
 
 	return largest, nil

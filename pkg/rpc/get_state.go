@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/base"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/logger"
@@ -80,9 +82,14 @@ func (conn *Connection) GetState(fieldBits types.StatePart, address base.Address
 		return nil, err
 	}
 
-	value := queryResults["balance"]
+	value, err := requiredRPCString(queryResults, "balance", "eth_getBalance")
+	if err != nil {
+		return nil, err
+	}
 	balance := base.NewWei(0)
-	balance.SetString(*value, 0)
+	if _, ok := balance.SetString(value, 0); !ok {
+		return nil, fmt.Errorf("eth_getBalance returned invalid balance %q", value)
+	}
 
 	state = &types.State{
 		Address:     address,
@@ -97,17 +104,27 @@ func (conn *Connection) GetState(fieldBits types.StatePart, address base.Address
 	}
 
 	if (fieldBits & types.Nonce) != 0 {
-		if value, ok := queryResults["nonce"]; ok {
-			state.Nonce = base.MustParseValue(*value)
+		if value, err := requiredRPCString(queryResults, "nonce", "eth_getTransactionCount"); err != nil {
+			return nil, err
+		} else {
+			nonce, err := parseRPCValue("eth_getTransactionCount", value)
+			if err != nil {
+				return nil, err
+			}
+			state.Nonce = nonce
 		}
 	}
 
 	if (fieldBits & types.Code) != 0 {
-		if value, ok := queryResults["code"]; ok {
-			code := *value
-			if code != "0x" {
-				state.Code = code
-			}
+		code, err := requiredRPCString(queryResults, "code", "eth_getCode")
+		if err != nil {
+			return nil, err
+		}
+		if !strings.HasPrefix(code, "0x") {
+			return nil, fmt.Errorf("eth_getCode returned invalid code %q", code)
+		}
+		if code != "0x" {
+			state.Code = code
 		}
 	}
 
@@ -149,6 +166,22 @@ func (conn *Connection) GetState(fieldBits types.StatePart, address base.Address
 		}
 	}
 	return state, err
+}
+
+func requiredRPCString(results map[string]*string, key, method string) (string, error) {
+	value, ok := results[key]
+	if !ok || value == nil {
+		return "", fmt.Errorf("%s returned no result", method)
+	}
+	return *value, nil
+}
+
+func parseRPCValue(method, value string) (base.Value, error) {
+	parsed, err := strconv.ParseUint(value, 0, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s returned invalid value %q: %w", method, value, err)
+	}
+	return base.Value(parsed), nil
 }
 
 // getBalanceAt returns a balance for an address at a block
