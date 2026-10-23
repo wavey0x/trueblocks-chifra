@@ -45,6 +45,12 @@ func TestSummaryAPIIsIndependentOfAddressOrderAndDefaultPage(t *testing.T) {
 			}
 		}
 	}
+	for _, order := range [][]monitor.Monitor{{a, empty}, {empty, a}} {
+		rows := runSummary(t, true, order, 0, base.NOPOSN, 0, 250, false)
+		if len(rows) != 1 || rows[0]["count"] != float64(300) {
+			t.Fatalf("mixed bounds: %v", rows)
+		}
+	}
 	rows := runSummary(t, false, []monitor.Monitor{a, empty}, 0, base.NOPOSN, 0, 250, false)
 	if rows[1]["nRecords"] != float64(0) {
 		t.Fatalf("empty monitor: %v", rows[1])

@@ -20,6 +20,8 @@ func (opts *ListOptions) HandleBounds(rCtx *output.RenderCtx, monitorArray []mon
 			return
 		}
 
+		emitted := 0
+		missing := []string{}
 		for _, mon := range monitorArray {
 			if apps, cnt, err := opts.readSummary(&mon); err != nil {
 				errorChan <- err
@@ -43,9 +45,17 @@ func (opts *ListOptions) HandleBounds(rCtx *output.RenderCtx, monitorArray []mon
 					LatestTs: latestTs,
 				}
 				modelChan <- &s
+				emitted++
 			} else {
-				errorChan <- fmt.Errorf("no appearances found for %s", mon.Address.Hex())
+				missing = append(missing, mon.Address.Hex())
 				continue
+			}
+		}
+		if emitted == 0 {
+			if len(missing) == 1 {
+				errorChan <- fmt.Errorf("no appearances found for %s", missing[0])
+			} else {
+				errorChan <- fmt.Errorf("no appearances found for any requested address")
 			}
 		}
 	}
