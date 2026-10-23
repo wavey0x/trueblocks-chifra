@@ -1,3 +1,34 @@
+## Reth-compatible v6 fork
+
+This branch starts at upstream v6.7.0. It preserves the Reth archive/state and
+RPC batch fixes from the v5 deployment, accepts nullable reward-trace hashes,
+and prevents partial chunk downloads or failed index reads from silently
+advancing address monitors. The latter two changes derive from
+[banteg's trace fix](https://github.com/TrueBlocks/trueblocks-chifra/pull/2) and
+[chunk-integrity fix](https://github.com/TrueBlocks/trueblocks-chifra/pull/1).
+
+Counts and bounds use independent pagination for each address. Unrestricted
+summaries read the monitor count and endpoints directly; the API's default
+250-record page no longer truncates them. Explicit bounds limits still select
+a subset. Missing or corrupt index data surfaces as an error rather than proof
+of no activity. These fixes do not repair gaps already stored in old monitors;
+compare any suspect monitor with an independent replay before replacing it.
+
+Build with Go 1.25.1 or newer:
+
+```sh
+GOWORK=off CGO_ENABLED=0 go build -trimpath -o chifra .
+```
+
+Before a v5 cutover, preserve the previous executable, configuration, service
+settings, and address monitors. Validate this build against the configured RPC
+and a copy of an existing index chunk, including counts over 250, both batch
+orders, full first/latest bounds, archive proof, and uncached tracing. Use an
+isolated cache for replay checks. Keep the index/cache paths and private RPC
+configuration outside the repository. Switch the API and scraper to the same
+immutable executable, verify scrape progress, and retain the prior release for
+rollback. Do not initialize or reseed an existing index as part of an upgrade.
+
 ## chifra
 
 `chifra` is an command line tool for accessing the entire collection of TrueBlocks tools. Enter `chifra <tool> --help` for more information.
