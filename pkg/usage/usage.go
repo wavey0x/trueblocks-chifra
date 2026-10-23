@@ -17,7 +17,20 @@ func Replace(msg string, values ...string) string {
 	return ret
 }
 
+type Error struct {
+	Message string
+}
+
+func (e *Error) Error() string {
+	return e.Message
+}
+
 // Usage returns an error version of the Replace string
 func Usage(msg string, values ...string) error {
-	return errors.New(Replace(msg, values...))
+	return &Error{Message: Replace(msg, values...)}
+}
+
+func Is(err error) bool {
+	var usageErr *Error
+	return errors.As(err, &usageErr)
 }

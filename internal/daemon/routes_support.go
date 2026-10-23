@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/logger"
+	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/usage"
 	"github.com/gorilla/mux"
 	"golang.org/x/time/rate"
 )
@@ -25,6 +26,14 @@ func RespondWithError(w http.ResponseWriter, httpStatus int, err error) {
 	marshalled, _ := json.MarshalIndent(ErrorResponse{Errors: []string{err.Error()}}, "", "  ")
 	w.WriteHeader(httpStatus)
 	_, _ = w.Write(marshalled)
+}
+
+func RespondWithRouteError(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	if usage.Is(err) {
+		status = http.StatusBadRequest
+	}
+	RespondWithError(w, status, err)
 }
 
 // NewRouter Creates a new router given the routes array
