@@ -129,9 +129,6 @@ func (r *Reconciler) GetStatements(node *types.AppNode[types.Transaction]) ([]ty
 				logger.TestLog(true, "Set EndSentinel for last log transfer")
 			}
 			stmt.Symbol = stmt.Asset.DefaultSymbol()
-			if err := r.resolveStatementDecimals(stmt); err != nil {
-				return nil, err
-			}
 			if name, found := r.Names[stmt.Asset]; found {
 				if r.RemoveAirdrops && name.IsAirdrop() {
 					logger.TestLog(true, "Removing airdrop for", stmt.Asset, "at block", stmt.BlockNumber, ".", stmt.TransactionIndex)
@@ -140,6 +137,9 @@ func (r *Reconciler) GetStatements(node *types.AppNode[types.Transaction]) ([]ty
 				if name.Symbol != "" {
 					stmt.Symbol = name.Symbol
 				}
+			}
+			if err := r.resolveStatementDecimals(stmt); err != nil {
+				return nil, err
 			}
 			logger.TestLog(true, "Converted log transfer to statement for asset:", stmt.Asset.Hex())
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/config"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/debug"
+	"github.com/ethereum/go-ethereum"
 )
 
 // Params are used during calls to the RPC.
@@ -109,7 +110,7 @@ func QueryWithHeaders[T any](url string, headers map[string]string, method strin
 							return nil, fmt.Errorf("%d: %s", result.Error.Code, result.Error.Message)
 						}
 						if result.Result == nil {
-							return nil, fmt.Errorf("%s returned no result", method)
+							return nil, fmt.Errorf("%s returned no result: %w", method, ethereum.NotFound)
 						}
 						return result.Result, nil
 					}
