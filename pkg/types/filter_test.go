@@ -196,3 +196,23 @@ func TestSort(t *testing.T) {
 		}
 	}
 }
+
+func TestResetStartsPaginationForEachWallet(t *testing.T) {
+	filter := NewFilter(false, false, nil, ranges.BlockRange{}, ranges.RecordRange{First: 2, Last: 3})
+	for range 2 {
+		filter.Reset()
+		passedCount := 0
+		for range 8 {
+			passed, finished := filter.PassesCountFilter()
+			if passed {
+				passedCount++
+			}
+			if finished {
+				break
+			}
+		}
+		if passedCount != 3 {
+			t.Fatalf("wallet got %d records, want 3", passedCount)
+		}
+	}
+}

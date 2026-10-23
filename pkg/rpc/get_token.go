@@ -211,12 +211,22 @@ func (conn *Connection) GetBalanceAtToken(token, holder base.Address, bn base.Bl
 		return nil, err
 	}
 
-	var balance *base.Wei
-	if output["balance"] == nil {
-		balance = base.NewWei(0)
-	} else {
-		balance = base.HexToWei(*output["balance"])
+	value := output["balance"]
+	if value == nil {
+		return nil, errors.New("balanceOf returned no result")
 	}
+	if *value == "0x" {
+		code, err := conn.GetContractCodeAt(token, bn)
+		if err != nil {
+			return nil, err
+		}
+		if len(code) != 0 {
+			return nil, errors.New("balanceOf returned empty data for an existing contract")
+		}
+	} else if !validTokenWord(*value) {
+		return nil, fmt.Errorf("balanceOf returned invalid data %q", *value)
+	}
+	balance := base.HexToWei(*value)
 
 	// Write to disk cache
 	tokenBalance.Balance = *balance

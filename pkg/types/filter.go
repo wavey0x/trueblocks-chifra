@@ -67,6 +67,8 @@ func (f *AppearanceFilter) SetSort(sortBy AppearanceSort) {
 }
 
 func (f *AppearanceFilter) Reset() {
+	f.nSeen = -1
+	f.nExported = 0
 	f.currentBn = uint32(0)
 	f.currentTs = int64(0)
 }

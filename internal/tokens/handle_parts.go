@@ -49,9 +49,8 @@ func (opts *TokensOptions) HandleParts(rCtx *output.RenderCtx) error {
 	}
 
 	extraOpts := map[string]any{
-		"parts":      opts.Parts,
-		"loadNames":  true,
-		"tokenState": true,
+		"parts":     opts.Parts,
+		"loadNames": true,
 	}
 
 	return output.StreamMany(rCtx, fetchData, opts.Globals.OutputOptsWithExtra(extraOpts))

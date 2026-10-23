@@ -14,6 +14,10 @@ except the final one which is the account whose token balances are reported.
 You may optionally specify one or more blocks at which to report. If no block is specified, the
 latest block is assumed. You may also optionally specify which parts of the token data to extract.
 
+Scaled quantities use RPC decimals at the queried block; label decimals do not override
+on-chain metadata. A balance before token deployment is zero. Current metadata may describe
+that zero; unavailable decimals are omitted rather than assumed to be 18.
+
 ```[plaintext]
 Purpose:
   Retrieve token balance(s) for one or more addresses at given block(s).

@@ -218,7 +218,7 @@ func TestCheckNodeTracingNullResult(t *testing.T) {
 	if check.OK {
 		t.Fatal("expected tracing check to fail")
 	}
-	for _, want := range []string{"trace_block", "block 1", "returned no trace array"} {
+	for _, want := range []string{"trace_block", "block 1", "returned no result"} {
 		if !strings.Contains(check.Diagnostic(), want) {
 			t.Fatalf("expected diagnostic to contain %q, got: %s", want, check.Diagnostic())
 		}
@@ -234,7 +234,7 @@ func TestCheckNodeTracingMissingResult(t *testing.T) {
 	if check.OK {
 		t.Fatal("expected tracing check to fail")
 	}
-	for _, want := range []string{"trace_block", "block 1", "returned no trace array"} {
+	for _, want := range []string{"trace_block", "block 1", "returned no result"} {
 		if !strings.Contains(check.Diagnostic(), want) {
 			t.Fatalf("expected diagnostic to contain %q, got: %s", want, check.Diagnostic())
 		}

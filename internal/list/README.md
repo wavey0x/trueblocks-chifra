@@ -11,6 +11,10 @@ caches the results.
 Note that `chifra list` only queries the index, it does not extract the full transactional details.
 You may use `chifra export` for that.
 
+Pagination applies independently to each wallet: `--first_record` skips records and
+`--max_records` limits records for each address. A multi-wallet API request may return
+250 records per wallet by default. An explicitly supplied limit of 250 is honored.
+
 ```[plaintext]
 Purpose:
   List every appearance of an address anywhere on the chain.

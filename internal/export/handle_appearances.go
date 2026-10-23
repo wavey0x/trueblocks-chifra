@@ -57,14 +57,14 @@ func (opts *ExportOptions) HandleAppearances(rCtx *output.RenderCtx, monitorArra
 
 func (opts *ExportOptions) IsMax(cnt uint64) bool {
 	max := opts.MaxRecords
-	if max == 250 && !opts.Globals.IsApiMode() {
+	if !opts.MaxRecordsSet && max == 250 && !opts.Globals.IsApiMode() {
 		max = base.NOPOS
 	}
 	return cnt >= max
 }
 
 func (opts *ExportOptions) GetMax() uint64 {
-	if opts.MaxRecords == 250 && !opts.Globals.IsApiMode() {
+	if !opts.MaxRecordsSet && opts.MaxRecords == 250 && !opts.Globals.IsApiMode() {
 		return base.NOPOS
 	}
 	return opts.MaxRecords
