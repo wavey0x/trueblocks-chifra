@@ -47,7 +47,7 @@ func (opts *TokensOptions) HandleShow(rCtx *output.RenderCtx) error {
 						holder = singleAddr
 					}
 
-					if balance, err := opts.Conn.GetBalanceAtToken(tokenAddr, holder, bn); balance == nil {
+					if state, err := opts.Conn.GetTokenBalanceState(tokenAddr, holder, bn); err != nil {
 						errorChan <- err
 					} else {
 						if opts.Globals.Verbose {
@@ -56,15 +56,8 @@ func (opts *TokensOptions) HandleShow(rCtx *output.RenderCtx) error {
 							}
 							currentBn = bn
 						}
-						s := &types.Token{
-							Holder:      holder,
-							Address:     tokenAddr,
-							Balance:     *balance,
-							BlockNumber: bn,
-							Timestamp:   currentTs,
-							TokenType:   types.TokenErc20,
-						}
-						modelChan <- s
+						state.Timestamp = currentTs
+						modelChan <- state
 					}
 				}
 			}

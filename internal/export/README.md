@@ -15,6 +15,10 @@ By default, the results of the extraction are delivered to your console, however
 the results to any database (with a little bit of work). The format of the data, its content and
 its destination are up to you.
 
+Pagination applies independently to each wallet: `--first_record` skips records and
+`--max_records` limits records for each address. A multi-wallet API request may return
+250 records per wallet by default. An explicitly supplied limit of 250 is honored.
+
 ```[plaintext]
 Purpose:
   Export full details of transactions for one or more addresses.

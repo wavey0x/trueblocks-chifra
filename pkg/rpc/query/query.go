@@ -25,7 +25,7 @@ type Payload struct {
 }
 
 type rpcResponse[T any] struct {
-	Result T             `json:"result"`
+	Result *T            `json:"result"`
 	Error  *eip1474Error `json:"error"`
 }
 
@@ -108,7 +108,10 @@ func QueryWithHeaders[T any](url string, headers map[string]string, method strin
 						if result.Error != nil {
 							return nil, fmt.Errorf("%d: %s", result.Error.Code, result.Error.Message)
 						}
-						return &result.Result, nil
+						if result.Result == nil {
+							return nil, fmt.Errorf("%s returned no result", method)
+						}
+						return result.Result, nil
 					}
 				}
 			}

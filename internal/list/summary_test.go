@@ -222,3 +222,21 @@ func TestBoundsUseEarliestAndLatestOfUnsortedMonitor(t *testing.T) {
 		t.Fatalf("blockSpan = %v, want 400", rows[0]["blockSpan"])
 	}
 }
+
+func TestHTTPExplicit250SurvivesParsing(t *testing.T) {
+	setupSummaryConfig(t)
+	req := httptest.NewRequest("GET", "/list?bounds=true&maxRecords=250&addrs=0x1111111111111111111111111111111111111111", nil)
+	opts := ListFinishParseInternal(httptest.NewRecorder(), req.URL.Query())
+	if !opts.MaxRecordsSet || opts.GetMax() != 250 {
+		t.Fatalf("explicit limit lost: set=%v max=%d", opts.MaxRecordsSet, opts.GetMax())
+	}
+	mon := summaryMonitor(t, opts.Addrs[0], 600)
+	apps, count, err := opts.readSummary(&mon)
+	if err != nil || count != 250 || len(apps) != 250 {
+		t.Fatalf("explicit bounds count=%d apps=%d err=%v", count, len(apps), err)
+	}
+	opts.MaxRecordsSet = false
+	if opts.GetMax() != base.NOPOS {
+		t.Fatal("omitted bounds limit must remain unbounded")
+	}
+}

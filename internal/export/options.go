@@ -65,6 +65,7 @@ type ExportOptions struct {
 	Conn        *rpc.Connection       `json:"conn,omitempty"`        // The connection to the RPC server
 	BadFlag     error                 `json:"badFlag,omitempty"`     // An error flag if needed
 	// EXISTING_CODE
+	MaxRecordsSet bool `json:"-"`
 	// EXISTING_CODE
 }
 
@@ -181,6 +182,7 @@ func ExportFinishParseInternal(w io.Writer, values url.Values) *ExportOptions {
 		case "firstRecord":
 			opts.FirstRecord = base.MustParseUint64(value[0])
 		case "maxRecords":
+			opts.MaxRecordsSet = true
 			opts.MaxRecords = base.MustParseUint64(value[0])
 		case "relevant":
 			opts.Relevant = true

@@ -53,7 +53,7 @@ func (opts *ListOptions) validateList() error {
 		return validate.Usage("--unripe is disabled for testing.")
 	}
 
-	if opts.Count && opts.MaxRecords != 250 {
+	if opts.Count && (opts.MaxRecordsSet || opts.MaxRecords != 250) {
 		x := fmt.Sprintf("%d", opts.MaxRecords)
 		return validate.Usage("The {0} option is not available{1}.", "--count", "with the --max_records-"+x+" option")
 	}

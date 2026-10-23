@@ -45,6 +45,7 @@ type ListOptions struct {
 	Conn        *rpc.Connection       `json:"conn,omitempty"`        // The connection to the RPC server
 	BadFlag     error                 `json:"badFlag,omitempty"`     // An error flag if needed
 	// EXISTING_CODE
+	MaxRecordsSet bool         `json:"-"`
 	PublisherAddr base.Address `json:"-"`
 	// EXISTING_CODE
 }
@@ -113,6 +114,7 @@ func ListFinishParseInternal(w io.Writer, values url.Values) *ListOptions {
 		case "firstRecord":
 			opts.FirstRecord = base.MustParseUint64(value[0])
 		case "maxRecords":
+			opts.MaxRecordsSet = true
 			opts.MaxRecords = base.MustParseUint64(value[0])
 		case "reversed":
 			opts.Reversed = true

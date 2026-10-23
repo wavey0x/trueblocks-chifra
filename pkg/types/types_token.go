@@ -39,6 +39,8 @@ type Token struct {
 	TokenType        TokenType      `json:"type"`
 	Calcs            *TokenCalcs    `json:"calcs,omitempty"`
 	// EXISTING_CODE
+	// Only pre-deployment zero balances may lack decimal metadata.
+	DecimalsUnavailable bool `json:"-"`
 	// EXISTING_CODE
 }
 
@@ -120,15 +122,16 @@ func (s *Token) RawMap(p *ModelProps, needed *[]Labeler) map[string]any {
 	if addressName, _, found := labelAddress(p.ExtraOpts, s.Address); found {
 		name = addressName
 	}
-	if name.Decimals == 0 {
-		name.Decimals = 18
+	// Labels may fill display names, but numeric metadata comes from RPC.
+	name.Decimals = s.Decimals
+	if s.Name != "" {
+		name.Name = s.Name
+	}
+	if s.Symbol != "" {
+		name.Symbol = s.Symbol
 	}
 	if name.Symbol == "" {
-		name.Symbol = name.Address.DefaultSymbol()
-	}
-	if p.ExtraOpts["tokenState"] == true {
-		// Metadata queries use the state read from the node, including valid zero decimals.
-		name.Name, name.Symbol, name.Decimals = s.Name, s.Symbol, s.Decimals
+		name.Symbol = s.Address.DefaultSymbol()
 	}
 
 	// Determine which fields to include based on order logic from original
@@ -173,7 +176,9 @@ func (s *Token) RawMap(p *ModelProps, needed *[]Labeler) map[string]any {
 		case "blockNumber":
 			model["blockNumber"] = s.BlockNumber
 		case "decimals":
-			model["decimals"] = name.Decimals
+			if !s.DecimalsUnavailable {
+				model["decimals"] = s.Decimals
+			}
 		case "holder":
 			model["holder"] = s.Holder
 		case "name":
@@ -210,12 +215,7 @@ func (s *Token) CalcMap(p *ModelProps) map[string]any {
 	if addressName, _, found := labelAddress(p.ExtraOpts, s.Address); found {
 		name = addressName
 	}
-	if name.Decimals == 0 {
-		name.Decimals = 18
-	}
-	if p.ExtraOpts["tokenState"] == true {
-		name.Decimals = s.Decimals
-	}
+	name.Decimals = s.Decimals
 
 	// Determine which fields to include based on order logic from original
 	wanted := []string{"all"}

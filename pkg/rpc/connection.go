@@ -3,14 +3,18 @@ package rpc
 import (
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/base"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/cache"
+	cacheLocations "github.com/TrueBlocks/trueblocks-chifra/v6/pkg/cache/locations"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/logger"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/walk"
+	"sync"
 )
 
 // Connection carries additional context to rpc calls
 type Connection struct {
-	Chain string
-	Store *cache.Store
+	Chain      string
+	Store      *cache.Store
+	decimalsMu sync.Mutex
+	decimals   map[tokenDecimalsKey]uint64
 }
 
 func NewConnection(chain string, cacheEnabled bool, enabledMap map[walk.CacheType]bool) *Connection {
@@ -58,7 +62,7 @@ func (conn *Connection) TestLog() {
 // ReadFromCache is syntactic sugar for the store. Cleans calling code by testing for nil store
 func (conn *Connection) ReadFromCache(value cache.Locator) error {
 	if conn.Store == nil {
-		return nil
+		return cacheLocations.ErrNotFound
 	}
 	return conn.Store.ReadFromStore(value)
 }
