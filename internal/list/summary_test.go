@@ -11,8 +11,10 @@ import (
 
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/base"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/config"
+	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/file"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/monitor"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/output"
+	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/rpc"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/types"
 )
 
@@ -162,4 +164,25 @@ func runSummary(t *testing.T, bounds bool, mons []monitor.Monitor, first, last b
 		t.Fatal(response.Errors)
 	}
 	return response.Data
+}
+
+func TestListAcceptsSingleBlockAndRejectsReversedRange(t *testing.T) {
+	setupSummaryConfig(t)
+	header := make([]byte, 42)
+	binary.LittleEndian.PutUint16(header, file.SmallMagicNumber)
+	copy(header[2:34], config.HeaderHash(config.ExpectedVersion()))
+	if err := os.WriteFile(filepath.Join(config.PathToIndex("mainnet"), "blooms", "000000000-000000000.bloom"), header, 0600); err != nil {
+		t.Fatal(err)
+	}
+	opts := ListOptions{Addrs: []string{"0x1111111111111111111111111111111111111111"}, FirstBlock: 100, LastBlock: 100}
+	opts.Globals.Chain = "mainnet"
+	opts.Globals.TestMode = true
+	opts.Conn = &rpc.Connection{Chain: "mainnet"}
+	if err := opts.validateList(); err != nil {
+		t.Fatalf("single block: %v", err)
+	}
+	opts.FirstBlock = 101
+	if err := opts.validateList(); err == nil {
+		t.Fatal("reversed range accepted")
+	}
 }
