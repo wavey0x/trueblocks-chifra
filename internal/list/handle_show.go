@@ -74,7 +74,7 @@ func (opts *ListOptions) IsMax(cnt uint64) bool {
 }
 
 func (opts *ListOptions) GetMax() uint64 {
-	if opts.MaxRecords == 250 && !opts.Globals.IsApiMode() {
+	if opts.MaxRecords == 250 && (!opts.Globals.IsApiMode() || opts.Count || opts.Bounds) {
 		return base.NOPOS
 	}
 	return opts.MaxRecords

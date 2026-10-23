@@ -10,7 +10,6 @@ import (
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/file"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/monitor"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/output"
-	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/ranges"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/types"
 )
 
@@ -23,23 +22,16 @@ func (opts *ListOptions) HandleCount(rCtx *output.RenderCtx, monitorArray []moni
 	}
 
 	testMode := opts.Globals.TestMode
-	filter := types.NewFilter(
-		opts.Reversed,
-		false,
-		[]string{},
-		ranges.BlockRange{First: opts.FirstBlock, Last: opts.LastBlock},
-		ranges.RecordRange{First: opts.FirstRecord, Last: opts.GetMax()},
-	)
 
 	fetchData := func(modelChan chan types.Modeler, errorChan chan error) {
 		for _, mon := range monitorArray {
-			if apps, cnt, err := mon.ReadAndFilterAppearances(filter, true /* withCount */); err != nil {
+			if _, cnt, err := opts.readSummary(&mon); err != nil {
 				errorChan <- err
 				return
 			} else if !opts.NoZero || cnt > 0 {
 				s := types.Monitor{
 					Address:     mon.Address,
-					NRecords:    int64(len(apps)),
+					NRecords:    int64(cnt),
 					FileSize:    file.FileSize(mon.Path()),
 					LastScanned: mon.LastScanned,
 					Deleted:     mon.Deleted,

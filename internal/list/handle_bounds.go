@@ -7,20 +7,12 @@ import (
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/base"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/monitor"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/output"
-	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/ranges"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/tslib"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/types"
 )
 
 func (opts *ListOptions) HandleBounds(rCtx *output.RenderCtx, monitorArray []monitor.Monitor) error {
 	chain := opts.Globals.Chain
-	filter := types.NewFilter(
-		opts.Reversed,
-		false,
-		[]string{},
-		ranges.BlockRange{First: opts.FirstBlock, Last: opts.LastBlock},
-		ranges.RecordRange{First: opts.FirstRecord, Last: opts.GetMax()},
-	)
 
 	fetchData := func(modelChan chan types.Modeler, errorChan chan error) {
 		if len(monitorArray) == 0 {
@@ -29,7 +21,7 @@ func (opts *ListOptions) HandleBounds(rCtx *output.RenderCtx, monitorArray []mon
 		}
 
 		for _, mon := range monitorArray {
-			if apps, cnt, err := mon.ReadAndFilterAppearances(filter, true /* withCount */); err != nil {
+			if apps, cnt, err := opts.readSummary(&mon); err != nil {
 				errorChan <- err
 				return
 			} else if cnt > 0 {
