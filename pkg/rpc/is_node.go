@@ -3,10 +3,12 @@ package rpc
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/base"
+	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/logger"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/prefunds"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/rpc/query"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/types"
@@ -50,6 +52,9 @@ type archiveProbe struct {
 	Expected    base.Wei
 	ExpectedHex string
 	Context     string
+	// Assume is set when the chain has no prefund data and no built-in probe. The node is
+	// then assumed to be an archive node, as chifra did before the probe existed.
+	Assume bool
 }
 
 const (
@@ -92,6 +97,12 @@ func (conn *Connection) CheckNodeArchive() CapabilityCheck {
 		return check
 	}
 	check.Block = probe.Block
+	if probe.Assume {
+		check.OK = true
+		check.Detail = probe.Context
+		logger.Warn(probe.Context)
+		return check
+	}
 
 	probeCall := fmt.Sprintf("%s %s at block %d", check.Method, probe.Address.Hex(), probe.Block)
 	result, err := query.Query[string](
@@ -199,6 +210,12 @@ func (conn *Connection) getArchiveProbe() (archiveProbe, error) {
 		}, nil
 	}
 
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, prefunds.ErrNoPrefunds) {
+		return archiveProbe{
+			Assume:  true,
+			Context: fmt.Sprintf("%s; no built-in archive probe for chain %s, assuming an archive node", context, conn.Chain),
+		}, nil
+	}
 	return archiveProbe{}, fmt.Errorf("%s; no built-in archive probe for chain %s", context, conn.Chain)
 }
 

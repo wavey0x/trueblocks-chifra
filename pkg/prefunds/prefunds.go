@@ -1,6 +1,7 @@
 package prefunds
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +25,9 @@ type allocationRecord struct {
 	Address string `csv:"address"`
 	Balance string `csv:"balance"`
 }
+
+// ErrNoPrefunds means the prefund file holds no allocations (for example, it is empty).
+var ErrNoPrefunds = errors.New("no valid prefunds found")
 
 // emptyAllocs is a list of empty allocations. We use this to return at least one allocation
 var emptyAllocs = []Allocation{}
@@ -99,7 +103,7 @@ func GetLargestPrefund(chain, thePath string) (Allocation, error) {
 		return Allocation{}, err
 	}
 	if largest.Address.IsZero() && largest.Balance.IsZero() {
-		return Allocation{}, fmt.Errorf("no valid prefunds found in %s", thePath)
+		return Allocation{}, fmt.Errorf("%w in %s", ErrNoPrefunds, thePath)
 	}
 
 	return largest, nil

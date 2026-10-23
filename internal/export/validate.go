@@ -165,8 +165,8 @@ func (opts *ExportOptions) validateExport() error {
 			return validate.Usage("The {0} options allow only a single address.", "accounting")
 		}
 
-		if !opts.Conn.IsNodeArchive() {
-			return validate.Usage("The {0} options requires {1}.", "accounting", "an archive node")
+		if check := opts.Conn.CheckNodeArchive(); !check.OK {
+			return validate.Usage("The {0} options requires {1}. Error: {2}", "accounting", "an archive node", check.Diagnostic())
 		}
 
 		if opts.Globals.Chain != "mainnet" {

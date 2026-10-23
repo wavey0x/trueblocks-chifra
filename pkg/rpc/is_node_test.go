@@ -384,3 +384,55 @@ func writeAllocs(t *testing.T, root string, content string) {
 		t.Fatal(err)
 	}
 }
+
+func configureExtraChain(t *testing.T, root, chain, chainID, rpcURL string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, "config", chain), 0700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(filepath.Join(root, "trueBlocks.toml"), os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := fmt.Fprintf(f, "\n[chains.%[1]s]\nchain = \"%[1]s\"\nchainId = \"%[2]s\"\nrpcProviders = [\"%[3]s\"]\nsymbol = \"ETH\"\nblockTime = 2\n", chain, chainID, rpcURL); err != nil {
+		t.Fatal(err)
+	}
+	config.ReloadConfig()
+}
+
+func TestCheckNodeArchiveAssumesArchiveWithoutAllocsOnOtherChains(t *testing.T) {
+	ts := newRPCServer(t, func(req rpcTestRequest) (any, *rpcTestError) {
+		t.Fatalf("no probe should be sent, got %s", req.Method)
+		return nil, nil
+	})
+	defer ts.Close()
+
+	_, root := configuredTestConnection(t, ts.URL)
+	configureExtraChain(t, root, "optimism", "10", ts.URL)
+	check := TempConnection("optimism").CheckNodeArchive()
+	if !check.OK || check.Err != nil {
+		t.Fatalf("chain without allocs.csv must keep the archive assumption: %s", check.Diagnostic())
+	}
+	if !strings.Contains(check.Detail, "assuming an archive node") {
+		t.Fatalf("expected the assumption in the detail, got: %s", check.Detail)
+	}
+}
+
+func TestCheckNodeArchiveRejectsCorruptAllocsOnOtherChains(t *testing.T) {
+	ts := newRPCServer(t, func(req rpcTestRequest) (any, *rpcTestError) {
+		t.Fatalf("no probe should be sent, got %s", req.Method)
+		return nil, nil
+	})
+	defer ts.Close()
+
+	_, root := configuredTestConnection(t, ts.URL)
+	configureExtraChain(t, root, "optimism", "10", ts.URL)
+	if err := os.WriteFile(filepath.Join(root, "config", "optimism", "allocs.csv"), []byte("address,balance\nnot-an-address,0x1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	check := TempConnection("optimism").CheckNodeArchive()
+	if check.OK {
+		t.Fatal("corrupt allocs.csv must not be treated as proof of an archive node")
+	}
+}

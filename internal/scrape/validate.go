@@ -51,8 +51,8 @@ func (opts *ScrapeOptions) validateScrape() error {
 		return validate.Usage("{0} requires {1}, try {2} instead. Error: {3}", "chifra scrape", "tracing", "chifra init", err.Error())
 	}
 
-	if !opts.Conn.IsNodeArchive() {
-		return validate.Usage("{0} requires {1}, try {2} instead.", "chifra scrape", "an archive node", "chifra init")
+	if check := opts.Conn.CheckNodeArchive(); !check.OK {
+		return validate.Usage("{0} requires {1}, try {2} instead. Error: {3}", "chifra scrape", "an archive node", "chifra init", check.Diagnostic())
 	}
 
 	if opts.Globals.IsApiMode() {
