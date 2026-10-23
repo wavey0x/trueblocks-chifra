@@ -117,6 +117,14 @@ func TestFreshenMonitorsAllowsUnpublishedGap(t *testing.T) {
 
 func testFreshenStopsAtHole(t *testing.T, hole freshenHole) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	rootConfig := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", rootConfig)
+	t.Setenv("TB_NO_PROVIDER_CHECK", "true")
+	if err := os.WriteFile(filepath.Join(rootConfig, "trueBlocks.toml"), []byte("[version]\ncurrent = \"v999.0.0\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	config.ReloadConfig()
+	t.Cleanup(config.ReloadConfig)
 	const chain = "testchain"
 	address := base.HexToAddress("0x1234567890123456789012345678901234567890")
 	root := config.PathToIndex(chain)

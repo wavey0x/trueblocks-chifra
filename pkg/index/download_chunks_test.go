@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/config"
 	"github.com/TrueBlocks/trueblocks-chifra/v6/pkg/progress"
 	"net/http"
 	"net/http/httptest"
@@ -169,6 +170,14 @@ func TestDownloadChunkToDiscRetries(t *testing.T) {
 // Run in a subprocess because SIGINT is process-wide and sigintTrap's cleanup is shared.
 func TestDownloadChunksInterruptBeforeHeaders(t *testing.T) {
 	if os.Getenv("CHIFRA_TEST_DOWNLOAD_INTERRUPT") == "1" {
+		rootConfig := t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", rootConfig)
+		t.Setenv("XDG_CACHE_HOME", t.TempDir())
+		t.Setenv("TB_NO_PROVIDER_CHECK", "true")
+		if err := os.WriteFile(filepath.Join(rootConfig, "trueBlocks.toml"), []byte("[version]\ncurrent = \"v999.0.0\"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		config.ReloadConfig()
 		http.DefaultClient = &http.Client{Transport: interruptTransport{}}
 		updates := make(chan *progress.ProgressMsg)
 		go func() {
